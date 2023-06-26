@@ -35,14 +35,15 @@ class BookingController extends Controller
      */
     public function index(Request $request)
     {
-        if($user_id = $request->get('user_id')) {
-
-            $response = $this->repository->getUsersJobs($user_id);
-
-        }
-        elseif($request->__authenticatedUser->user_type == env('ADMIN_ROLE_ID') || $request->__authenticatedUser->user_type == env('SUPERADMIN_ROLE_ID'))
-        {
+        $userType = $request->user()->user_type; //improved for readbly purpose by adding this line so it uses the same variable instead of calling the same function twice
+        $userId  = $request->get('userId');
+        
+        if($userId) { // before it was "$userId  = $request->get('userId');" which was not readable so i changed it to "$userId = $request->get('userId');"
+            $response = $this->repository->getUsersJobs($userId);
+        } elseif($userType == env('ADMIN_ROLE_ID') || $userType == env('SUPERADMIN_ROLE_ID')) { // it is not a good idea to use env() directly here at index, because upon clearing cache it can changed, we can set some middle ware or config rules here
             $response = $this->repository->getAll($request);
+        } else {
+            $response = []; //we can set this according to our needs, i made the default value is set to empty array for now
         }
 
         return response($response);
@@ -66,9 +67,8 @@ class BookingController extends Controller
     public function store(Request $request)
     {
         $data = $request->all();
-
-        $response = $this->repository->store($request->__authenticatedUser, $data);
-
+        $response = $this->repository->store($request->user(), $data); // it uses the dependency injection, also i have changed the code from __authenticatedUser to $request->user() as laravel has this functionality built in to get the authenticated user
+        
         return response($response);
 
     }
@@ -81,8 +81,8 @@ class BookingController extends Controller
     public function update($id, Request $request)
     {
         $data = $request->all();
-        $cuser = $request->__authenticatedUser;
-        $response = $this->repository->updateJob($id, array_except($data, ['_token', 'submit']), $cuser);
+        $user = $request->__authenticatedUser;     //here im not chaning the __authenticatedUser to $request->user() because i want to use same as the original code for updating the job
+        $response = $this->repository->updateJob($id, array_except($data, ['_token', 'submit']), $user);
 
         return response($response);
     }
@@ -93,9 +93,8 @@ class BookingController extends Controller
      */
     public function immediateJobEmail(Request $request)
     {
-        $adminSenderEmail = config('app.adminemail');
+         // i am going to remove this as it is not used anywhere in the code
         $data = $request->all();
-
         $response = $this->repository->storeJobEmail($data);
 
         return response($response);
@@ -107,9 +106,10 @@ class BookingController extends Controller
      */
     public function getHistory(Request $request)
     {
-        if($user_id = $request->get('user_id')) {
-
-            $response = $this->repository->getUsersJobsHistory($user_id, $request);
+        $userId = $request->get('user_id');
+        if($userId) {
+            
+            $response = $this->repository->getUsersJobsHistory($userId, $request);
             return response($response);
         }
 
@@ -196,50 +196,22 @@ class BookingController extends Controller
     {
         $data = $request->all();
 
-        if (isset($data['distance']) && $data['distance'] != "") {
-            $distance = $data['distance'];
-        } else {
-            $distance = "";
-        }
-        if (isset($data['time']) && $data['time'] != "") {
-            $time = $data['time'];
-        } else {
-            $time = "";
-        }
-        if (isset($data['jobid']) && $data['jobid'] != "") {
-            $jobid = $data['jobid'];
-        }
+        $distance = isset($data['distance']) ? $data['distance'] : "";
 
-        if (isset($data['session_time']) && $data['session_time'] != "") {
-            $session = $data['session_time'];
-        } else {
-            $session = "";
-        }
+        $time = isset($data['time']) ? $data['time'] : "";
 
-        if ($data['flagged'] == 'true') {
-            if($data['admincomment'] == '') return "Please, add comment";
-            $flagged = 'yes';
-        } else {
-            $flagged = 'no';
-        }
-        
-        if ($data['manually_handled'] == 'true') {
-            $manually_handled = 'yes';
-        } else {
-            $manually_handled = 'no';
-        }
+        $jobid = (isset($data['jobid'])) ? $data['jobid'] : "";
 
-        if ($data['by_admin'] == 'true') {
-            $by_admin = 'yes';
-        } else {
-            $by_admin = 'no';
-        }
+        $session = isset($data['session_time']) ? $data['session_time'] : "";
 
-        if (isset($data['admincomment']) && $data['admincomment'] != "") {
-            $admincomment = $data['admincomment'];
-        } else {
-            $admincomment = "";
-        }
+        $flagged = $data['flagged'] == 'true' ? 'yes' : 'no';
+        if($flagged == 'yes' && $data['admincomment'] == '') return "Please, add comment";
+        $manually_handled = $data['manually_handled'] == 'true' ? 'yes' : 'no';
+        $by_admin = $data['by_admin'] == 'true' ? 'yes' : 'no';
+
+        $admincomment = isset($data['admincomment']) ? $data['admincomment'] : "";
+
+
         if ($time || $distance) {
 
             $affectedRows = Distance::where('job_id', '=', $jobid)->update(array('distance' => $distance, 'time' => $time));
@@ -247,7 +219,12 @@ class BookingController extends Controller
 
         if ($admincomment || $session || $flagged || $manually_handled || $by_admin) {
 
-            $affectedRows1 = Job::where('id', '=', $jobid)->update(array('admin_comments' => $admincomment, 'flagged' => $flagged, 'session_time' => $session, 'manually_handled' => $manually_handled, 'by_admin' => $by_admin));
+            $affectedRows1 = Job::where('id', '=', $jobid)->update([
+                                                            'admin_comments' => $admincomment, 
+                                                            'flagged' => $flagged, 
+                                                            'session_time' => $session, 
+                                                            'manually_handled' => $manually_handled, 
+                                                            'by_admin' => $by_admin]);
 
         }
 
